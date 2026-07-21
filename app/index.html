@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>TFlix</title>
+<style>
+/* ── Reset & Base ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0a0a0f; color: #e0e0e0; font-size: 16px;
+  -webkit-user-select: none; user-select: none; cursor: none;
+}
+
+/* ── Focus ──────────────────────────────────────────────────────────────── */
+*:focus { outline: none; }
+.tflix-focused {
+  outline: 3px solid #e50914 !important;
+  transform: scale(1.05);
+  z-index: 10;
+  transition: transform 0.15s, outline 0.15s;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+#tflix-header {
+  position: fixed; top: 0; left: 0; right: 0; height: 60px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 100%);
+  display: flex; align-items: center; padding: 0 24px; z-index: 100;
+}
+#tflix-logo { font-size: 28px; font-weight: 700; color: #e50914; letter-spacing: -1px; }
+#tflix-search-btn {
+  margin-left: auto; background: rgba(255,255,255,0.1); border: none;
+  color: #ccc; font-size: 18px; padding: 8px 20px; border-radius: 6px;
+}
+#tflix-search-btn:focus, #tflix-search-btn.tflix-focused { outline-color: #e50914; }
+#tflix-error-banner { display: none; position: fixed; top: 60px; left: 0; right: 0; background: #8b0000; color: #fff; text-align: center; padding: 10px; font-size: 14px; z-index: 101; }
+
+/* ── Main Content ───────────────────────────────────────────────────────── */
+#tflix-main {
+  position: fixed; top: 60px; left: 0; right: 0; bottom: 0;
+  overflow-y: auto; overflow-x: hidden; padding: 0 24px 100px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+.tflix-row { margin-bottom: 32px; }
+.tflix-row-title { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+.tflix-row-scroll {
+  display: flex; gap: 10px; overflow-x: visible; padding: 4px 0;
+  scroll-behavior: smooth;
+}
+
+/* ── Poster Cards ───────────────────────────────────────────────────────── */
+.tflix-card {
+  flex-shrink: 0; width: 150px; border-radius: 6px; overflow: hidden;
+  background: #1a1a2e; transition: transform 0.15s;
+}
+.tflix-card img { width: 100%; height: 225px; object-fit: cover; display: block; }
+.tflix-card-meta { padding: 8px; }
+.tflix-card-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; }
+.tflix-card-info { font-size: 11px; color: #999; margin-top: 2px; }
+
+/* ── Detail Overlay ─────────────────────────────────────────────────────── */
+#tflix-detail { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.95); flex-direction: column; }
+#tflix-detail.open { display: flex; }
+#tflix-detail-backdrop { width: 100%; height: 250px; object-fit: cover; opacity: 0.5; }
+#tflix-detail-content { padding: 24px; flex: 1; overflow-y: auto; display: flex; gap: 20px; }
+#tflix-detail-poster { width: 180px; height: 270px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+#tflix-detail-info { flex: 1; }
+#tflix-detail-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+#tflix-detail-meta { font-size: 14px; color: #aaa; margin-bottom: 12px; }
+#tflix-detail-desc { font-size: 15px; color: #ccc; line-height: 1.5; margin-bottom: 16px; }
+#tflix-detail-genres { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.tflix-genre-tag { background: rgba(229,9,20,0.2); color: #e50914; padding: 4px 12px; border-radius: 4px; font-size: 12px; }
+#tflix-play-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #e50914; color: #fff; border: none; font-size: 18px; font-weight: 600;
+  padding: 14px 36px; border-radius: 8px; cursor: pointer;
+}
+#tflix-play-btn.tflix-focused { outline-color: #fff; transform: scale(1.08); }
+#tflix-detail-back {
+  position: absolute; top: 16px; left: 16px; background: rgba(255,255,255,0.15);
+  border: none; color: #fff; font-size: 18px; padding: 10px 18px; border-radius: 6px; z-index: 10;
+}
+
+/* ── Player View ────────────────────────────────────────────────────────── */
+#tflix-player { display: none; position: fixed; inset: 0; z-index: 300; background: #000; }
+#tflix-player.open { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+#tflix-video { width: 100%; height: 100%; object-fit: contain; }
+#tflix-player-controls {
+  position: absolute; bottom: 0; left: 0; right: 0; padding: 20px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+  display: flex; align-items: center; gap: 12px; z-index: 10;
+}
+#tflix-player-back {
+  background: rgba(255,255,255,0.15); border: none; color: #fff;
+  font-size: 16px; padding: 8px 16px; border-radius: 6px;
+}
+.tflix-player-action { background: rgba(255,255,255,0.1); border: none; color: #fff; font-size: 14px; padding: 8px 14px; border-radius: 6px; }
+
+/* ── Search View ────────────────────────────────────────────────────────── */
+#tflix-search-wrap { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.95); flex-direction: column; padding: 80px 24px 24px; }
+#tflix-search-wrap.open { display: flex; }
+#tflix-search-input {
+  width: 100%; max-width: 600px; margin: 0 auto 20px;
+  background: rgba(255,255,255,0.1); border: 2px solid transparent;
+  color: #fff; font-size: 22px; padding: 14px 20px; border-radius: 8px;
+}
+#tflix-search-input:focus, #tflix-search-input.tflix-focused { border-color: #e50914; }
+#tflix-search-results { flex: 1; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-content: flex-start; padding-bottom: 60px; }
+#tflix-search-close { position: absolute; top: 20px; right: 24px; background: rgba(255,255,255,0.15); border: none; color: #fff; font-size: 18px; padding: 10px 18px; border-radius: 6px; }
+.tflix-search-empty { color: #888; font-size: 16px; text-align: center; margin-top: 60px; }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.tflix-toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.85); color: #fff; font-size: 16px;
+  padding: 12px 28px; border-radius: 8px; z-index: 500;
+  opacity: 0; transition: opacity 0.3s; pointer-events: none;
+}
+.tflix-toast.show { opacity: 1; }
+
+/* ── Loading ────────────────────────────────────────────────────────────── */
+#tflix-loading { display: flex; align-items: center; justify-content: center; height: 200px; }
+.tflix-spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #e50914; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Scrollbar ──────────────────────────────────────────────────────────── */
+#tflix-main::-webkit-scrollbar { width: 6px; }
+#tflix-main::-webkit-scrollbar-track { background: transparent; }
+#tflix-main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div id="tflix-header">
+  <div id="tflix-logo">TFlix</div>
+  <button id="tflix-search-btn" data-nav="search-btn">&#x1F50D; Search</button>
+</div>
+<div id="tflix-error-banner"></div>
+
+<!-- Main browse area -->
+<div id="tflix-main">
+  <div id="tflix-loading"><div class="tflix-spinner"></div></div>
+</div>
+
+<!-- Detail overlay -->
+<div id="tflix-detail">
+  <button id="tflix-detail-back" data-nav="detail-back">&#x2190; Back</button>
+  <img id="tflix-detail-backdrop" src="" alt="">
+  <div id="tflix-detail-content">
+    <img id="tflix-detail-poster" src="" alt="">
+    <div id="tflix-detail-info">
+      <div id="tflix-detail-title"></div>
+      <div id="tflix-detail-meta"></div>
+      <div id="tflix-detail-genres"></div>
+      <div id="tflix-detail-desc"></div>
+      <button id="tflix-play-btn" data-nav="play-btn">&#x25B6; Play</button>
+    </div>
+  </div>
+</div>
+
+<!-- Search view -->
+<div id="tflix-search-wrap">
+  <button id="tflix-search-close" data-nav="search-close">&#x2715; Close</button>
+  <input type="text" id="tflix-search-input" data-nav="search-input" placeholder="Search movies &amp; shows..." autocomplete="off">
+  <div id="tflix-search-results"></div>
+</div>
+
+<!-- Player -->
+<div id="tflix-player">
+  <video id="tflix-video" controls></video>
+  <div id="tflix-player-controls">
+    <button id="tflix-player-back" data-nav="player-back">&#x2190; Back</button>
+    <button class="tflix-player-action" data-nav="player-seek-back">&#x23EE; -10s</button>
+    <button class="tflix-player-action" data-nav="player-playpause">&#x23EF;</button>
+    <button class="tflix-player-action" data-nav="player-seek-fwd">&#x23ED; +10s</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="tflix-toast" id="tflix-toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API = 'http://127.0.0.1:8098';
+  var GENRES = {
+    28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
+    80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
+    14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
+    9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi', 10770: 'TV Movie',
+    53: 'Thriller', 10752: 'War', 37: 'Western'
+  };
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  var $main = document.getElementById('tflix-main');
+  var $loading = document.getElementById('tflix-loading');
+  var $error = document.getElementById('tflix-error-banner');
+  var $detail = document.getElementById('tflix-detail');
+  var $detailBackdrop = document.getElementById('tflix-detail-backdrop');
+  var $detailPoster = document.getElementById('tflix-detail-poster');
+  var $detailTitle = document.getElementById('tflix-detail-title');
+  var $detailMeta = document.getElementById('tflix-detail-meta');
+  var $detailGenres = document.getElementById('tflix-detail-genres');
+  var $detailDesc = document.getElementById('tflix-detail-desc');
+  var $playBtn = document.getElementById('tflix-play-btn');
+  var $searchWrap = document.getElementById('tflix-search-wrap');
+  var $searchInput = document.getElementById('tflix-search-input');
+  var $searchResults = document.getElementById('tflix-search-results');
+  var $player = document.getElementById('tflix-player');
+  var $video = document.getElementById('tflix-video');
+  var $toast = document.getElementById('tflix-toast');
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  var currentView = 'browse'; // browse | detail | search | player
+  var currentMovie = null;
+  var allMovies = [];
+  var toastTimer = null;
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+  function showToast(msg, dur) {
+    dur = dur || 2000;
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { $toast.classList.remove('show'); }, dur);
+  }
+
+  function showError(msg) {
+    $error.style.display = 'block';
+    $error.textContent = msg;
+    setTimeout(function () { $error.style.display = 'none'; }, 5000);
+  }
+
+  // ── Navigation State Machine ──────────────────────────────────────────────
+  // Each view has its own focusable elements. We manage focus manually since
+  // TV browsers have inconsistent native focus with spatial nav.
+
+  /**
+   * Get all focusable elements in the current view.
+   */
+  function getFocusables() {
+    if (currentView === 'browse') {
+      var els = document.querySelectorAll('[data-nav="search-btn"]');
+      var cards = document.querySelectorAll('.tflix-card');
+      // Combine: first header elements, then cards
+      var result = [];
+      for (var i = 0; i < els.length; i++) result.push(els[i]);
+      for (var j = 0; j < cards.length; j++) result.push(cards[j]);
+      return result;
+    }
+    if (currentView === 'detail') {
+      return document.querySelectorAll(
+        '#tflix-detail-back, #tflix-play-btn, [data-nav="embed-btn"]'
+      );
+    }
+    if (currentView === 'search') {
+      var sel = document.querySelectorAll(
+        '#tflix-search-input, #tflix-search-close, .tflix-card'
+      );
+      return sel;
+    }
+    if (currentView === 'player') {
+      return document.querySelectorAll('[data-nav^="player-"]');
+    }
+    return [];
+  }
+
+  /**
+   * Focus an element by index in the current view's focusable list.
+   */
+  function focusIndex(idx) {
+    var f = getFocusables();
+    if (f.length === 0) return;
+    // Remove old focus class
+    var prev = document.querySelector('.tflix-focused');
+    if (prev) prev.classList.remove('tflix-focused');
+    // Clamp index
+    if (idx < 0) idx = 0;
+    if (idx >= f.length) idx = f.length - 1;
+    var el = f[idx];
+    el.classList.add('tflix-focused');
+    el.focus({ preventScroll: false });
+    // Scroll card into view if needed
+    if (currentView === 'browse' && el.classList.contains('tflix-card')) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    return idx;
+  }
+
+  var currentFocusIndex = 0;
+
+  /**
+   * Rebuild focus list and refocus at a card if possible.
+   */
+  function refreshFocus(targetIdx) {
+    var f = getFocusables();
+    var idx = targetIdx || currentFocusIndex;
+    if (idx >= f.length) idx = Math.max(0, f.length - 1);
+    currentFocusIndex = focusIndex(idx);
+  }
+
+  // ── Key Handling ──────────────────────────────────────────────────────────
+  var KEY_LEFT = 37, KEY_UP = 38, KEY_RIGHT = 39, KEY_DOWN = 40;
+  var KEY_ENTER = 13, KEY_SPACE = 32, KEY_OK = 461;
+  var KEY_BACK = 10009; // Samsung TV back key
+  var KEY_RETURN = 8;   // Backspace as back
+  var KEY_MEDIA_PLAYPAUSE = 'MediaPlayPause';
+  var KEY_MEDIA_PLAY = 'MediaPlay';
+  var KEY_MEDIA_PAUSE = 'MediaPause';
+  var KEY_MEDIA_STOP = 'MediaStop';
+  var KEY_MEDIA_FF = 'MediaFastForward';
+  var KEY_MEDIA_RW = 'MediaRewind';
+  var KEY_MEDIA_NEXT = 'MediaTrackNext';
+  var KEY_MEDIA_PREV = 'MediaTrackPrevious';
+
+  // Media key names (browsers use the key name string)
+  var MEDIA_KEYS = {
+    MediaPlayPause: true, MediaPlay: true, MediaPause: true, MediaStop: true,
+    MediaFastForward: true, MediaRewind: true, MediaTrackNext: true, MediaTrackPrevious: true
+  };
+
+  document.addEventListener('keydown', function (e) {
+    // Media keys
+    if (MEDIA_KEYS[e.key]) {
+      handleMediaKey(e.key);
+      e.preventDefault();
+      return;
+    }
+
+    // Back key
+    if (e.keyCode === KEY_BACK || e.keyCode === 10009 || e.key === 'GoBack' || e.key === 'XF86Back') {
+      handleBack();
+      e.preventDefault();
+      return;
+    }
+
+    // Arrow navigation
+    if (e.keyCode === KEY_LEFT) { navHorizontal(-1); e.preventDefault(); return; }
+    if (e.keyCode === KEY_RIGHT) { navHorizontal(1); e.preventDefault(); return; }
+    if (e.keyCode === KEY_UP) { navVertical(-1); e.preventDefault(); return; }
+    if (e.keyCode === KEY_DOWN) { navVertical(1); e.preventDefault(); return; }
+
+    // Enter / OK / Space → activate
+    if (e.keyCode === KEY_ENTER || e.keyCode === KEY_SPACE || e.keyCode === KEY_OK) {
+      activate();
+      e.preventDefault();
+      return;
+    }
+
+    // Escape → back
+    if (e.keyCode === 27) {
+      handleBack();
+      e.preventDefault();
+      return;
+    }
+  });
+
+  // ── Spatial Navigation ────────────────────────────────────────────────────
+
+  /**
+   * Navigate horizontally within a row (browse view) or flat list.
+   * In browse view: left/right move within the current row.
+   */
+  function navHorizontal(dir) {
+    var f = getFocusables();
+    if (f.length === 0) return;
+
+    if (currentView === 'browse') {
+      // Find current focused element's row and move within it
+      var current = f[currentFocusIndex];
+      if (!current) { currentFocusIndex = focusIndex(0); return; }
+      if (current === document.getElementById('tflix-search-btn')) {
+        // Search button: right goes to first card
+        if (dir > 0 && f.length > 1) currentFocusIndex = focusIndex(1);
+        return;
+      }
+      if (current.classList.contains('tflix-card')) {
+        var rect = current.getBoundingClientRect();
+        var bestIdx = currentFocusIndex;
+        var bestDist = Infinity;
+        for (var i = 0; i < f.length; i++) {
+          if (i === currentFocusIndex || !f[i].classList.contains('tflix-card')) continue;
+          var r = f[i].getBoundingClientRect();
+          // Same row: vertical centers are close
+          var dy = Math.abs((rect.top + rect.height / 2) - (r.top + r.height / 2));
+          if (dy > rect.height * 0.7) continue; // different row
+          var dx = (r.left + r.width / 2) - (rect.left + rect.width / 2);
+          if (dir < 0 && dx < 0 && Math.abs(dx) < bestDist) { bestDist = Math.abs(dx); bestIdx = i; }
+          if (dir > 0 && dx > 0 && Math.abs(dx) < bestDist) { bestDist = Math.abs(dx); bestIdx = i; }
+        }
+        if (bestIdx !== currentFocusIndex) {
+          currentFocusIndex = focusIndex(bestIdx);
+        }
+        return;
+      }
+      // Generic: move to next/prev
+      currentFocusIndex = focusIndex(currentFocusIndex + dir);
+    } else {
+      // Flat list (search, detail, player) — simple next/prev
+      currentFocusIndex = focusIndex(currentFocusIndex + dir);
+    }
+  }
+
+  /**
+   * Navigate vertically.
+   * In browse view: move to nearest card in adjacent row.
+   */
+  function navVertical(dir) {
+    var f = getFocusables();
+    if (f.length === 0) return;
+
+    if (currentView === 'browse') {
+      var current = f[currentFocusIndex];
+      if (!current) { currentFocusIndex = focusIndex(0); return; }
+      if (current === document.getElementById('tflix-search-btn')) {
+        // Down from search button → first card
+        if (dir > 0 && f.length > 1) currentFocusIndex = focusIndex(1);
+        return;
+      }
+      if (current.classList.contains('tflix-card')) {
+        var rect = current.getBoundingClientRect();
+        var bestIdx = currentFocusIndex;
+        var bestDist = Infinity;
+        for (var i = 0; i < f.length; i++) {
+          if (i === currentFocusIndex || !f[i].classList.contains('tflix-card')) continue;
+          var r = f[i].getBoundingClientRect();
+          var dy = (r.top + r.height / 2) - (rect.top + rect.height / 2);
+          // Must be in the desired direction
+          if (dir < 0 && dy >= 0) continue;
+          if (dir > 0 && dy <= 0) continue;
+          // Horizontal alignment matters — prefer cards close on X axis
+          var dx = Math.abs((rect.left + rect.width / 2) - (r.left + r.width / 2));
+          var dist = Math.abs(dy) * 1.0 + dx * 0.3; // weighted: prefer vertical proximity
+          if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+        }
+        if (bestIdx !== currentFocusIndex) {
+          currentFocusIndex = focusIndex(bestIdx);
+        }
+        return;
+      }
+      currentFocusIndex = focusIndex(currentFocusIndex + dir);
+    } else {
+      currentFocusIndex = focusIndex(currentFocusIndex + dir);
+    }
+  }
+
+  // ── Activation ────────────────────────────────────────────────────────────
+  function activate() {
+    var f = getFocusables();
+    if (f.length === 0) return;
+    var el = f[currentFocusIndex];
+    if (!el) return;
+
+    if (el.id === 'tflix-search-btn' || el.getAttribute('data-nav') === 'search-btn') {
+      openSearch();
+    } else if (el.classList.contains('tflix-card')) {
+      var id = el.getAttribute('data-movie-id');
+      if (id) openDetail(id);
+    } else if (el.id === 'tflix-play-btn' || el.getAttribute('data-nav') === 'play-btn') {
+      playMovie();
+    } else if (el.id === 'tflix-detail-back' || el.getAttribute('data-nav') === 'detail-back') {
+      closeDetail();
+    } else if (el.id === 'tflix-search-close' || el.getAttribute('data-nav') === 'search-close') {
+      closeSearch();
+    } else if (el.id === 'tflix-player-back' || el.getAttribute('data-nav') === 'player-back') {
+      closePlayer();
+    } else if (el.getAttribute('data-nav') === 'player-seek-back') {
+      $video.currentTime = Math.max(0, $video.currentTime - 10);
+      showToast('⏪ -10s', 800);
+    } else if (el.getAttribute('data-nav') === 'player-seek-fwd') {
+      $video.currentTime = Math.min($video.duration || Infinity, $video.currentTime + 10);
+      showToast('⏩ +10s', 800);
+    } else if (el.getAttribute('data-nav') === 'player-playpause') {
+      if ($video.paused) { $video.play(); showToast('▶ Playing', 1000); }
+      else { $video.pause(); showToast('⏸ Paused', 1000); }
+    } else if (el.getAttribute('data-nav') === 'embed-btn') {
+      var embedUrl = el.getAttribute('data-embed-url');
+      if (embedUrl) openPlayer(embedUrl);
+    } else {
+      el.click();
+    }
+  }
+
+  // ── Media Keys ────────────────────────────────────────────────────────────
+  function handleMediaKey(key) {
+    if (currentView === 'player') {
+      switch (key) {
+        case 'MediaPlayPause':
+          if ($video.paused) { $video.play(); showToast('▶ Playing', 1000); }
+          else { $video.pause(); showToast('⏸ Paused', 1000); }
+          break;
+        case 'MediaPlay': $video.play(); showToast('▶ Playing', 1000); break;
+        case 'MediaPause': $video.pause(); showToast('⏸ Paused', 1000); break;
+        case 'MediaStop': $video.pause(); $video.currentTime = 0; showToast('⏹ Stopped', 1000); break;
+        case 'MediaFastForward':
+        case 'MediaTrackNext':
+          $video.currentTime = Math.min($video.duration || Infinity, $video.currentTime + 10);
+          showToast('⏩ +10s', 800); break;
+        case 'MediaRewind':
+        case 'MediaTrackPrevious':
+          $video.currentTime = Math.max(0, $video.currentTime - 10);
+          showToast('⏪ -10s', 800); break;
+      }
+    } else if (currentView === 'detail' || currentView === 'browse') {
+      // If no video playing, media keys do nothing special
+    }
+  }
+
+  // ── Back Navigation ───────────────────────────────────────────────────────
+  function handleBack() {
+    if (currentView === 'player') { closePlayer(); }
+    else if (currentView === 'detail') { closeDetail(); }
+    else if (currentView === 'search') { closeSearch(); }
+    // browse: no-op
+  }
+
+  // ── View: Browse ──────────────────────────────────────────────────────────
+  function buildBrowse(data) {
+    $main.innerHTML = '';
+    allMovies = [];
+
+    // Save all movies for search fallback
+    if (data.allMovies) allMovies = data.allMovies;
+
+    // Trending row
+    if (data.trending && data.trending.length > 0) {
+      $main.appendChild(buildRow('Trending', data.trending));
+    }
+
+    // Top Rated row
+    if (data.topRated && data.topRated.length > 0) {
+      $main.appendChild(buildRow('Top Rated', data.topRated));
+    }
+
+    // Genre rows
+    if (data.genreRows && data.genreRows.length > 0) {
+      for (var i = 0; i < data.genreRows.length; i++) {
+        var gr = data.genreRows[i];
+        if (gr.items && gr.items.length > 0) {
+          $main.appendChild(buildRow(gr.name, gr.items));
+        }
+      }
+    }
+
+    currentView = 'browse';
+    currentFocusIndex = 0;
+    focusIndex(0);
+  }
+
+  function buildRow(title, movies) {
+    var row = document.createElement('div');
+    row.className = 'tflix-row';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'tflix-row-title';
+    titleEl.textContent = title;
+    row.appendChild(titleEl);
+
+    var scroll = document.createElement('div');
+    scroll.className = 'tflix-row-scroll';
+
+    for (var i = 0; i < movies.length; i++) {
+      scroll.appendChild(buildCard(movies[i]));
+    }
+
+    row.appendChild(scroll);
+    return row;
+  }
+
+  function buildCard(movie) {
+    var card = document.createElement('div');
+    card.className = 'tflix-card';
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('data-movie-id', movie.id || movie._id || '');
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', movie.title || '');
+
+    var img = document.createElement('img');
+    img.src = movie.poster || movie.image || '';
+    img.alt = movie.title || '';
+    img.setAttribute('loading', 'lazy');
+    // Fallback if image fails
+    img.onerror = function () {
+      img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="150" height="225" fill="%231a1a2e"><rect width="150" height="225"/><text x="75" y="115" text-anchor="middle" fill="%23888" font-size="14">No Image</text></svg>';
+    };
+    card.appendChild(img);
+
+    var meta = document.createElement('div');
+    meta.className = 'tflix-card-meta';
+
+    var titleEl = document.createElement('div');
+    titleEl.className = 'tflix-card-title';
+    titleEl.textContent = movie.title || '';
+    meta.appendChild(titleEl);
+
+    var info = document.createElement('div');
+    info.className = 'tflix-card-info';
+    var parts = [];
+    if (movie.year) parts.push(movie.year);
+    if (movie.rating && movie.rating > 0) parts.push('★ ' + movie.rating);
+    info.textContent = parts.join(' · ');
+    meta.appendChild(info);
+
+    card.appendChild(meta);
+    return card;
+  }
+
+  // ── View: Detail ──────────────────────────────────────────────────────────
+  function openDetail(id) {
+    // Find the movie from our cached data
+    var movie = null;
+    for (var i = 0; i < allMovies.length; i++) {
+      if (String(allMovies[i].id) === String(id)) {
+        movie = allMovies[i];
+        break;
+      }
+    }
+    if (!movie) {
+      showToast('Loading movie info…', 1500);
+      loadMovieDetail(id);
+      return;
+    }
+    showDetail(movie);
+  }
+
+  function loadMovieDetail(id) {
+    showToast('Loading…', 2000);
+    fetch(API + '/api/movie/' + encodeURIComponent(id))
+      .then(function (r) { return r.json(); })
+      .then(function (movie) {
+        if (movie && movie.title) {
+          showDetail(movie);
+        } else {
+          showToast('Could not load movie details', 2500);
+        }
+      })
+      .catch(function () {
+        showToast('Could not load movie details', 2500);
+      });
+  }
+
+  function showDetail(movie) {
+    currentMovie = movie;
+
+    $detailTitle.textContent = movie.title || '';
+    $detailDesc.textContent = (movie.description || movie.overview || '').slice(0, 400);
+
+    var metaParts = [];
+    if (movie.year) metaParts.push(movie.year);
+    if (movie.rating && movie.rating > 0) metaParts.push('★ ' + movie.rating);
+    if (movie.mediaType) metaParts.push(movie.mediaType === 'tv' ? 'TV Show' : 'Movie');
+    $detailMeta.textContent = metaParts.join(' · ');
+
+    // Genres
+    $detailGenres.innerHTML = '';
+    var genres = movie.genres || [];
+    for (var i = 0; i < genres.length; i++) {
+      var tag = document.createElement('span');
+      tag.className = 'tflix-genre-tag';
+      tag.textContent = typeof genres[i] === 'string' ? genres[i] : String(genres[i]);
+      $detailGenres.appendChild(tag);
+    }
+
+    // Images
+    $detailPoster.src = movie.poster || movie.image || '';
+    $detailBackdrop.src = movie.backdrop || movie.poster || '';
+
+    // Embed URLs → make them focusable
+    var existingEmbeds = document.querySelectorAll('[data-nav="embed-btn"]');
+    for (var j = 0; j < existingEmbeds.length; j++) existingEmbeds[j].remove();
+
+    if (movie.embedUrls && movie.embedUrls.length > 0) {
+      var embedContainer = document.createElement('div');
+      embedContainer.style.marginTop = '16px';
+      embedContainer.style.display = 'flex';
+      embedContainer.style.flexWrap = 'wrap';
+      embedContainer.style.gap = '8px';
+
+      for (var k = 0; k < movie.embedUrls.length; k++) {
+        var btn = document.createElement('button');
+        btn.textContent = '▶ Source ' + (k + 1);
+        btn.className = 'tflix-genre-tag';
+        btn.style.cssText = 'cursor:pointer;background:rgba(255,255,255,0.1);color:#fff;padding:8px 16px;font-size:14px;border-radius:6px;border:none;';
+        btn.setAttribute('data-nav', 'embed-btn');
+        btn.setAttribute('data-embed-url', movie.embedUrls[k]);
+        embedContainer.appendChild(btn);
+      }
+      $detailDesc.parentNode.insertBefore(embedContainer, $detailDesc.nextSibling);
+    }
+
+    $detail.classList.add('open');
+    currentView = 'detail';
+    currentFocusIndex = 0;
+    // Focus play button first
+    var f = getFocusables();
+    for (var fi = 0; fi < f.length; fi++) {
+      if (f[fi].id === 'tflix-play-btn') {
+        currentFocusIndex = focusIndex(fi);
+        return;
+      }
+    }
+    focusIndex(0);
+  }
+
+  function closeDetail() {
+    $detail.classList.remove('open');
+    currentMovie = null;
+    currentView = 'browse';
+    refreshFocus(0);
+  }
+
+  function playMovie() {
+    if (!currentMovie) return;
+    // Try embed URLs first
+    if (currentMovie.embedUrls && currentMovie.embedUrls.length > 0) {
+      openPlayer(currentMovie.embedUrls[0]);
+      return;
+    }
+    // Fallback: open the cineby.at movie page via proxy
+    var url = API + '/proxy/video?url=' + encodeURIComponent(
+      'https://www.cineby.at/movie/' + (currentMovie.slug || currentMovie.id)
+    );
+    openPlayer(url);
+  }
+
+  // ── View: Player ──────────────────────────────────────────────────────────
+  function openPlayer(url) {
+    $player.classList.add('open');
+    $video.src = url;
+    $video.play().catch(function () {
+      showToast('Press OK or ▶ to start playback', 3000);
+    });
+    currentView = 'player';
+    currentFocusIndex = 0;
+    focusIndex(0);
+  }
+
+  function closePlayer() {
+    $video.pause();
+    $video.src = '';
+    $player.classList.remove('open');
+    if (currentMovie) {
+      currentView = 'detail';
+      refreshFocus(0);
+    } else {
+      currentView = 'browse';
+      refreshFocus(0);
+    }
+  }
+
+  // ── View: Search ──────────────────────────────────────────────────────────
+  function openSearch() {
+    $searchWrap.classList.add('open');
+    $searchInput.value = '';
+    $searchResults.innerHTML = '<div class="tflix-search-empty">Type to search…</div>';
+    currentView = 'search';
+    currentFocusIndex = 0;
+    focusIndex(0);
+    setTimeout(function () { $searchInput.focus(); }, 100);
+  }
+
+  function closeSearch() {
+    $searchWrap.classList.remove('open');
+    currentView = 'browse';
+    refreshFocus(0);
+  }
+
+  var searchDebounce = null;
+  $searchInput.addEventListener('input', function () {
+    clearTimeout(searchDebounce);
+    var q = $searchInput.value.trim();
+    if (!q) {
+      $searchResults.innerHTML = '<div class="tflix-search-empty">Type to search…</div>';
+      return;
+    }
+    searchDebounce = setTimeout(function () { doSearch(q); }, 400);
+  });
+
+  function doSearch(q) {
+    $searchResults.innerHTML = '<div class="tflix-spinner" style="margin:40px auto"></div>';
+
+    fetch(API + '/api/search?q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var results = data.results || [];
+
+        if (results.length === 0) {
+          // Fallback: search locally
+          results = localSearch(q);
+          if (results.length === 0) {
+            $searchResults.innerHTML = '<div class="tflix-search-empty">No results for "' + q + '"</div>';
+            return;
+          }
+        }
+
+        $searchResults.innerHTML = '';
+        for (var i = 0; i < results.length; i++) {
+          $searchResults.appendChild(buildCard(results[i]));
+        }
+        refreshFocus(1); // Focus first result
+      })
+      .catch(function () {
+        var results = localSearch(q);
+        if (results.length === 0) {
+          $searchResults.innerHTML = '<div class="tflix-search-empty">No results for "' + q + '"</div>';
+          return;
+        }
+        $searchResults.innerHTML = '';
+        for (var j = 0; j < results.length; j++) {
+          $searchResults.appendChild(buildCard(results[j]));
+        }
+        refreshFocus(1);
+      });
+  }
+
+  function localSearch(q) {
+    var lower = q.toLowerCase();
+    return allMovies.filter(function (m) {
+      return (m.title || '').toLowerCase().indexOf(lower) !== -1;
+    }).slice(0, 40);
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  function init() {
+    showToast('Loading…', 2000);
+
+    fetch(API + '/api/home')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          showError('Service error: ' + data.error);
+          $loading.innerHTML = '<div style="text-align:center;padding:60px;color:#888;">⚠ Unable to connect. The backend service may not be running.</div>';
+          return;
+        }
+        buildBrowse(data);
+      })
+      .catch(function () {
+        showError('Cannot connect to TFlix service. Make sure the service is running on port 8098.');
+        $loading.innerHTML = '<div style="text-align:center;padding:60px;color:#888;">⚠ Cannot connect to TFlix service at ' + API + '</div>';
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

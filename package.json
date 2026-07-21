@@ -1,11 +1,10 @@
 {
   "name": "@rockerroblox/tflix",
   "appName": "TFlix",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "TV-friendly Cineby.at streaming for Samsung Tizen TVs via TizenBrew",
-  "packageType": "mods",
-  "websiteURL": "https://www.cineby.at",
-  "main": "dist/userScript.js",
+  "packageType": "app",
+  "appPath": "app/index.html",
   "serviceFile": "dist/service.js",
   "keys": [
     "MediaPlayPause",
