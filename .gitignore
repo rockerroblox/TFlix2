@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+
+# Build output — TRACKED for TizenBrew compatibility.
+# TizenBrew installs modules directly from GitHub and injects
+# dist/userScript.js into the webview. Without dist/ committed,
+# the script is never injected and the TV shows a black screen.
+# /dist/
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Packaging artifacts
+*.tgz
+
+# Repo-only docs
+NPM-PUBLISHING.md
+MODULES.md
+TFlix-Description.md
+.github/
+
+# Build scripts are tracked (build.bat)

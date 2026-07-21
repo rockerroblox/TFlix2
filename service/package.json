@@ -1,0 +1,26 @@
+{
+  "name": "@zyrecx/tflix-service",
+  "version": "1.0.0",
+  "description": "TFlix service for handling backend functionality",
+  "main": "service.js",
+  "scripts": {
+    "build": "rollup -c rollup.config.js"
+  },
+  "keywords": [
+    "tizenbrew",
+    "tizen",
+    "samsung",
+    "tv",
+    "cineby"
+  ],
+  "author": "Zyrex",
+  "license": "MIT",
+  "dependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.2",
+    "rollup": "^3.26.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
