@@ -1,8 +1,8 @@
 import 'whatwg-fetch';
-import './spatial-navigation-polyfill.js';
+import './navigation.js';
 import './ui.js';
-import './contentDetector.js';
+import './content.js';
 import { initializePerformanceOptimizations } from './performance.js';
 
-// Initialize performance optimizations early
+// Apply performance optimizations once the page is ready
 initializePerformanceOptimizations();
