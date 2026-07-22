@@ -5,7 +5,7 @@
   "description": "TV-friendly Cineby.at streaming for Samsung Tizen TVs via TizenBrew",
   "packageType": "app",
   "appPath": "app/index.html",
-  "serviceFile": "dist/service.js",
+  "serviceFile": "dist/tflix-service.js",
   "keys": [
     "MediaPlayPause",
     "MediaPlay",
