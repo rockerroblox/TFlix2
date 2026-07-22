@@ -61,7 +61,8 @@ async function build() {
         // Don't add module.exports = ... — the service runs itself
         // (starts Express server), it doesn't export anything.
         // This avoids potential ReferenceError in TizenBrew's VM sandbox.
-        exports: 'none'
+        exports: 'none',
+        banner: '/* TFlix v3.0.0 — ' + new Date().toISOString() + ' */'
     });
 
     await bundle.close();

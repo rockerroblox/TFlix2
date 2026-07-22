@@ -1,3 +1,4 @@
+/* TFlix v3.0.0 — 2026-07-22T13:17:42.393Z */
 'use strict';
 
 var require$$0$3 = require('path');
