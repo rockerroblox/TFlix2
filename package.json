@@ -1,5 +1,5 @@
 {
-  "name": "@rockerroblox/tflix",
+  "name": "tflix",
   "appName": "TFlix",
   "version": "3.0.0",
   "description": "TV-friendly Cineby.at streaming for Samsung Tizen TVs via TizenBrew",

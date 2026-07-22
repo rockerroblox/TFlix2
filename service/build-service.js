@@ -25,11 +25,19 @@ ncc(input, {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    var code = result.code;
+
+    // Fix for TizenBrew VM sandbox: the sandbox excludes `module` from the
+    // global context, so `module.exports = ...` throws ReferenceError and
+    // crashes the service before Express starts. Strip it — the service
+    // just needs to run and listen on port 8098.
+    code = code.replace(';module.exports=__webpack_exports__', '');
+
     // Write bundled output
-    fs.writeFileSync(outputFile, result.code, 'utf8');
+    fs.writeFileSync(outputFile, code, 'utf8');
 
     // Log summary
-    var kb = (Buffer.byteLength(result.code, 'utf8') / 1024).toFixed(1);
+    var kb = (Buffer.byteLength(code, 'utf8') / 1024).toFixed(1);
     console.log('Built dist/service.js (' + kb + ' KB)');
 }).catch(function (err) {
     console.error('Build failed:', err);
