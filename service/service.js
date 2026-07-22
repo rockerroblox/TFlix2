@@ -1,5 +1,7 @@
 'use strict';
 
+// TFlix v3.0.0 — build 2026-07-22
+
 /**
  * TFlix Service — Backend proxy for cineby.at
  *
