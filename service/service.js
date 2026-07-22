@@ -4,11 +4,12 @@
  * TFlix Service — Backend proxy for cineby.at
  *
  * Runs as a TizenBrew service in a Node.js VM sandbox.
- * Bundled with @vercel/ncc into dist/service.js.
+ * Built with Rollup + Babel into dist/service.js.
  *
- * IMPORTANT: No async/await, arrow functions, const/let, or template
- * literals — Tizen TVs may run Node.js 4.4.3 which only supports ES5.
- * All async operations use Promise .then() chains.
+ * IMPORTANT: Uses only built-in Node.js modules (http, https, url, etc.).
+ * No node-fetch — TizenBrew's VM sandbox excludes `global`,
+ * and node-fetch uses `global.Promise` at module init, causing
+ * ReferenceError before Express can start.
  *
  * Endpoints:
  *   GET /api/home          — trending, top-rated, genre rows
@@ -19,23 +20,28 @@
  *   GET /api/health        — health check
  */
 
-var express = require('express');
-var fetch = require('node-fetch');
-var app = express();
-var PORT = 8098;
+// ── Imports ──────────────────────────────────────────────────────────────────
+
+import express from 'express';
+import https from 'https';
+import http from 'http';
+import url from 'url';
+
+const app = express();
+const PORT = 8098;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-var CINEBY = 'https://www.cineby.at';
-var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 ' +
-         '(KHTML, like Gecko) SamsungBrowser/4.0 Chrome/85.0.4183.303 TV Safari/537.36';
+const CINEBY = 'https://www.cineby.at';
+const UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 ' +
+           '(KHTML, like Gecko) SamsungBrowser/4.0 Chrome/85.0.4183.303 TV Safari/537.36';
 
-var CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-var homeCache = null;
-var homeCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+let homeCache = null;
+let homeCacheTime = 0;
 
 // TMDB genre ID → name
-var GENRES = {
+const GENRES = {
     28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy',
     80: 'Crime', 99: 'Documentary', 18: 'Drama', 10751: 'Family',
     14: 'Fantasy', 36: 'History', 27: 'Horror', 10402: 'Music',
@@ -43,9 +49,83 @@ var GENRES = {
     53: 'Thriller', 10752: 'War', 37: 'Western'
 };
 
+// ── HTTP Fetch (built-in http/https — no node-fetch, no global.Promise issue) ─
+
+const REDIRECT_CODES = [301, 302, 303, 307, 308];
+
+function httpFetch(fetchUrl, opts = {}) {
+    return new Promise((resolve, reject) => {
+        const parsed = url.parse(fetchUrl);
+        const mod = parsed.protocol === 'https:' ? https : http;
+        const reqOpts = {
+            hostname: parsed.hostname,
+            port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+            path: parsed.path,
+            method: 'GET',
+            headers: opts.headers || {},
+            rejectUnauthorized: false
+        };
+
+        const req = mod.request(reqOpts, (res) => {
+            // Follow redirects
+            const isRedirect = REDIRECT_CODES.indexOf(res.statusCode) >= 0;
+            if (opts.redirect === 'follow' && isRedirect && res.headers.location) {
+                res.resume(); // Drain the body so the socket is freed
+                resolve(httpFetch(res.headers.location, opts));
+                return;
+            }
+
+            const status = res.statusCode;
+
+            const response = {
+                status,
+                ok: status >= 200 && status < 300,
+                headers: {
+                    get(name) {
+                        const lower = name.toLowerCase();
+                        const keys = Object.keys(res.headers);
+                        for (let i = 0; i < keys.length; i++) {
+                            if (keys[i].toLowerCase() === lower) {
+                                return res.headers[keys[i]];
+                            }
+                        }
+                        return null;
+                    }
+                },
+                // Raw stream — for image/video proxy piping
+                body: res,
+                // Lazily-read body text — only consumed if .text() is called
+                _bodyText: null,
+                text() {
+                    if (this._bodyText !== null) {
+                        return Promise.resolve(this._bodyText);
+                    }
+                    return new Promise((resolveText, rejectText) => {
+                        const chunks = [];
+                        res.on('data', (chunk) => chunks.push(chunk));
+                        res.on('end', () => {
+                            this._bodyText = Buffer.concat(chunks).toString('utf8');
+                            resolveText(this._bodyText);
+                        });
+                        res.on('error', rejectText);
+                    });
+                }
+            };
+            resolve(response);
+        });
+
+        req.on('error', reject);
+        req.setTimeout(15000, () => {
+            req.abort();
+            reject(new Error('Request timeout'));
+        });
+        req.end();
+    });
+}
+
 // ── CORS ────────────────────────────────────────────────────────────────────
 
-app.use(function (req, res, next) {
+app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
@@ -60,26 +140,24 @@ app.use(function (req, res, next) {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetch a URL with TV browser-like headers. Returns a Promise.
+ * Fetch a URL with TV browser-like headers. Returns a Promise<string>.
  */
-function fetchPage(url) {
-    return fetch(url, {
+function fetchPage(fetchUrl) {
+    return httpFetch(fetchUrl, {
         headers: {
             'User-Agent': UA,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5'
         },
         redirect: 'follow'
-    }).then(function (resp) {
-        return resp.text();
-    });
+    }).then(resp => resp.text());
 }
 
 /**
  * Extract __NEXT_DATA__ JSON from a Next.js SSR page.
  */
 function extractNextData(html) {
-    var match = html.match(/<script id="__NEXT_DATA__"[^>]*>([^<]+)<\/script>/);
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([^<]+)<\/script>/);
     if (!match) return null;
     try {
         return JSON.parse(match[1]);
@@ -100,10 +178,12 @@ function normalizeMovie(m) {
         poster: m.poster || m.image || '',
         backdrop: m.backdrop || '',
         rating: m.rating || m.vote_average || 0,
-        year: m.release_date ? (m.release_date + '').slice(0, 4) : (m.year || ''),
-        genres: (m.genre_ids || m.genres || []).map(function (g) {
-            return typeof g === 'number' ? (GENRES[g] || 'Other') : (g.name || g);
-        }),
+        year: m.release_date
+            ? String(m.release_date).slice(0, 4)
+            : (m.year || ''),
+        genres: (m.genre_ids || m.genres || []).map(g =>
+            typeof g === 'number' ? (GENRES[g] || 'Other') : (g.name || g)
+        ),
         mediaType: m.mediaType || 'movie',
         overview: m.overview || m.description || ''
     };
@@ -111,28 +191,30 @@ function normalizeMovie(m) {
 
 // ── API: Home ───────────────────────────────────────────────────────────────
 
-app.get('/api/home', function (req, res) {
-    var now = Date.now();
+app.get('/api/home', (req, res) => {
+    const now = Date.now();
     if (homeCache && (now - homeCacheTime) < CACHE_TTL) {
         res.json(homeCache);
         return;
     }
 
     fetchPage(CINEBY)
-        .then(function (html) {
-            var data = extractNextData(html);
+        .then(html => {
+            const data = extractNextData(html);
             if (!data) {
                 res.status(502).json({ error: 'Failed to parse cineby.at data' });
                 return;
             }
 
-            var pageProps = data.props && data.props.pageProps ? data.props.pageProps : {};
-            var movies = (pageProps.initialGenreMovies || []).map(normalizeMovie).filter(Boolean);
+            const pageProps = (data.props && data.props.pageProps) || {};
+            let movies = (pageProps.initialGenreMovies || [])
+                .map(normalizeMovie)
+                .filter(Boolean);
 
             // Deduplicate by ID
-            var seen = {};
-            var unique = [];
-            for (var i = 0; i < movies.length; i++) {
+            const seen = {};
+            const unique = [];
+            for (let i = 0; i < movies.length; i++) {
                 if (!seen[movies[i].id]) {
                     seen[movies[i].id] = true;
                     unique.push(movies[i]);
@@ -141,28 +223,35 @@ app.get('/api/home', function (req, res) {
             movies = unique;
 
             // Top rated
-            var topRated = movies.slice().sort(function (a, b) { return b.rating - a.rating; }).slice(0, 20);
+            const topRated = movies.slice().sort(
+                (a, b) => b.rating - a.rating
+            ).slice(0, 20);
 
             // Genre rows (first 15 per genre)
-            var genreRows = {};
-            for (var j = 0; j < movies.length; j++) {
-                var gs = movies[j].genres || [];
-                for (var k = 0; k < gs.length; k++) {
-                    var gn = gs[k];
+            const genreRows = {};
+            for (let j = 0; j < movies.length; j++) {
+                const gs = movies[j].genres || [];
+                for (let k = 0; k < gs.length; k++) {
+                    const gn = gs[k];
                     if (!genreRows[gn]) genreRows[gn] = [];
-                    if (genreRows[gn].length < 15) genreRows[gn].push(movies[j]);
+                    if (genreRows[gn].length < 15) {
+                        genreRows[gn].push(movies[j]);
+                    }
                 }
             }
 
-            var genreRowsArr = [];
-            var keys = Object.keys(genreRows).sort();
-            for (var gi = 0; gi < keys.length; gi++) {
-                genreRowsArr.push({ name: keys[gi], items: genreRows[keys[gi]] });
+            const genreRowsArr = [];
+            const keys = Object.keys(genreRows).sort();
+            for (let gi = 0; gi < keys.length; gi++) {
+                genreRowsArr.push({
+                    name: keys[gi],
+                    items: genreRows[keys[gi]]
+                });
             }
 
-            var result = {
+            const result = {
                 trending: movies.slice(0, 20),
-                topRated: topRated,
+                topRated,
                 genreRows: genreRowsArr,
                 total: movies.length
             };
@@ -171,23 +260,28 @@ app.get('/api/home', function (req, res) {
             homeCacheTime = now;
             res.json(result);
         })
-        .catch(function (e) {
+        .catch(e => {
             res.status(500).json({ error: 'Internal error' });
         });
 });
 
 // ── API: Movie Detail ───────────────────────────────────────────────────────
 
-app.get('/api/movie/:id', function (req, res) {
-    var id = req.params.id;
-    var url = CINEBY + '/movie/' + id;
+app.get('/api/movie/:id', (req, res) => {
+    const id = req.params.id;
+    const fetchUrl = CINEBY + '/movie/' + id;
 
-    fetchPage(url)
-        .then(function (html) {
-            var movie = { id: id, url: url, title: '', description: '', poster: '', backdrop: '', year: '', rating: 0, genres: [], streamUrl: null, embedUrls: [] };
+    fetchPage(fetchUrl)
+        .then(html => {
+            const movie = {
+                id, url: fetchUrl,
+                title: '', description: '', poster: '', backdrop: '',
+                year: '', rating: 0, genres: [],
+                streamUrl: null, embedUrls: []
+            };
 
             // Extract OG meta tags
-            var m;
+            let m;
             m = html.match(/<meta property="og:title" content="([^"]+)"/);
             if (m) movie.title = m[1];
             m = html.match(/<meta property="og:description" content="([^"]+)"/);
@@ -195,7 +289,7 @@ app.get('/api/movie/:id', function (req, res) {
             m = html.match(/<meta property="og:image" content="([^"]+)"/);
             if (m) movie.poster = m[1];
 
-            // Also try twitter meta tags
+            // Twitter fallbacks
             if (!movie.poster) {
                 m = html.match(/<meta name="twitter:image" content="([^"]+)"/);
                 if (m) movie.poster = m[1];
@@ -205,12 +299,12 @@ app.get('/api/movie/:id', function (req, res) {
                 if (m) movie.title = m[1];
             }
 
-            // Try __NEXT_DATA__ for any embedded info
-            var data = extractNextData(html);
+            // Try __NEXT_DATA__ for embedded info
+            const data = extractNextData(html);
             if (data) {
-                var pp = (data.props && data.props.pageProps) || {};
+                const pp = (data.props && data.props.pageProps) || {};
                 if (pp.movie) {
-                    var nm = normalizeMovie(pp.movie);
+                    const nm = normalizeMovie(pp.movie);
                     if (nm) {
                         movie.title = movie.title || nm.title;
                         movie.description = movie.description || nm.overview;
@@ -224,114 +318,132 @@ app.get('/api/movie/:id', function (req, res) {
             }
 
             // Find iframe embeds (stream sources)
-            var iframeRegex = /<iframe[^>]+src="([^"]+)"/gi;
-            var iframeMatch;
+            const iframeRegex = /<iframe[^>]+src="([^"]+)"/gi;
+            let iframeMatch;
             while ((iframeMatch = iframeRegex.exec(html)) !== null) {
                 movie.embedUrls.push(iframeMatch[1]);
             }
 
             res.json(movie);
         })
-        .catch(function (e) {
+        .catch(e => {
             res.status(500).json({ error: 'Internal error' });
         });
 });
 
 // ── API: Search ─────────────────────────────────────────────────────────────
 
-app.get('/api/search', function (req, res) {
-    var query = (req.query.q || '').trim();
+app.get('/api/search', (req, res) => {
+    const query = (req.query.q || '').trim();
     if (!query) {
-        res.json({ query: query, results: [] });
+        res.json({ query, results: [] });
         return;
     }
 
-    var url = CINEBY + '/search?q=' + encodeURIComponent(query);
+    const fetchUrl = CINEBY + '/search?q=' + encodeURIComponent(query);
 
-    fetchPage(url)
-        .then(function (html) {
-            var data = extractNextData(html);
+    fetchPage(fetchUrl)
+        .then(html => {
+            const data = extractNextData(html);
             if (!data) {
-                res.json({ query: query, results: [] });
+                res.json({ query, results: [] });
                 return;
             }
 
-            var pp = data.props && data.props.pageProps ? data.props.pageProps : {};
-            var raw = pp.searchResults || pp.movies || pp.results || [];
-            var results = raw.map(normalizeMovie).filter(Boolean);
+            const pp = (data.props && data.props.pageProps) || {};
+            const raw = pp.searchResults || pp.movies || pp.results || [];
+            const results = raw.map(normalizeMovie).filter(Boolean);
 
-            res.json({ query: query, results: results });
+            res.json({ query, results });
         })
-        .catch(function (e) {
+        .catch(e => {
             res.status(500).json({ error: 'Internal error' });
         });
 });
 
 // ── Proxy: Image ────────────────────────────────────────────────────────────
 
-app.get('/proxy/image', function (req, res) {
-    var url = req.query.url;
-    if (!url) { res.status(400).end(); return; }
+app.get('/proxy/image', (req, res) => {
+    const proxyUrl = req.query.url;
+    if (!proxyUrl) {
+        res.status(400).end();
+        return;
+    }
 
-    fetch(url, {
-        headers: { 'User-Agent': UA, 'Referer': CINEBY }
+    httpFetch(proxyUrl, {
+        headers: { 'User-Agent': UA, 'Referer': CINEBY },
+        redirect: 'follow'
     })
-        .then(function (resp) {
-            if (!resp.ok) { res.status(resp.status).end(); return; }
+        .then(resp => {
+            if (!resp.ok) {
+                res.status(resp.status).end();
+                return;
+            }
 
-            res.setHeader('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
+            res.setHeader(
+                'Content-Type',
+                resp.headers.get('content-type') || 'image/jpeg'
+            );
             res.setHeader('Cache-Control', 'public, max-age=86400');
             resp.body.pipe(res);
         })
-        .catch(function (e) {
+        .catch(e => {
             res.status(500).end();
         });
 });
 
 // ── Proxy: Video ────────────────────────────────────────────────────────────
 
-app.get('/proxy/video', function (req, res) {
-    var url = req.query.url;
-    if (!url) { res.status(400).end(); return; }
+app.get('/proxy/video', (req, res) => {
+    const proxyUrl = req.query.url;
+    if (!proxyUrl) {
+        res.status(400).end();
+        return;
+    }
 
-    var headers = { 'User-Agent': UA, 'Referer': CINEBY };
-    if (req.headers.range) headers['Range'] = req.headers.range;
+    const headers = { 'User-Agent': UA, 'Referer': CINEBY };
+    if (req.headers.range) {
+        headers['Range'] = req.headers.range;
+    }
 
-    fetch(url, { headers: headers })
-        .then(function (resp) {
+    httpFetch(proxyUrl, { headers, redirect: 'follow' })
+        .then(resp => {
             if (!resp.ok && resp.status !== 206) {
                 res.status(resp.status).end();
                 return;
             }
 
             if (resp.status === 206) res.status(206);
-            res.setHeader('Content-Type', resp.headers.get('content-type') || 'video/mp4');
+            res.setHeader(
+                'Content-Type',
+                resp.headers.get('content-type') || 'video/mp4'
+            );
             res.setHeader('Accept-Ranges', 'bytes');
 
-            var cr = resp.headers.get('content-range');
+            const cr = resp.headers.get('content-range');
             if (cr) res.setHeader('Content-Range', cr);
-            var cl = resp.headers.get('content-length');
+            const cl = resp.headers.get('content-length');
             if (cl) res.setHeader('Content-Length', cl);
 
             resp.body.pipe(res);
         })
-        .catch(function (e) {
+        .catch(e => {
             res.status(500).end();
         });
 });
 
 // ── Health ──────────────────────────────────────────────────────────────────
 
-app.get('/api/health', function (req, res) {
+app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });
 });
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
-var server = app.listen(PORT, '127.0.0.1', function () {
-    // Service is running
+const server = app.listen(PORT, '127.0.0.1', () => {
+    console.log('[TFlix] Service started on http://127.0.0.1:' + PORT);
 });
 
-server.on('error', function (err) {
-    // Port in use or permission denied — the UI will show connection error
+server.on('error', (err) => {
+    console.error('[TFlix] Failed to start:', err.message || err);
 });

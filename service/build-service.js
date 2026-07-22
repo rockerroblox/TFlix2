@@ -1,45 +1,77 @@
 /**
  * Build script — bundles service/service.js into dist/service.js
- * using @vercel/ncc for TizenBrew's Node.js VM sandbox compatibility.
+ * using Rollup + Babel for TizenBrew's Node.js VM sandbox compatibility.
+ *
+ * Unlike @vercel/ncc (which does NOT transpile syntax), Rollup + Babel
+ * properly converts modern JS down to ES5 via @babel/preset-env,
+ * targeting Node 4.4.3 (Tizen TV runtime).
  *
  * Usage: node build-service.js
  * Output: ../dist/service.js
  */
 
-var ncc = require('@vercel/ncc');
-var path = require('path');
-var fs = require('fs');
+const rollup = require('rollup');
+const babel = require('@rollup/plugin-babel').default || require('@rollup/plugin-babel');
+const commonjs = require('@rollup/plugin-commonjs');
+const resolve = require('@rollup/plugin-node-resolve');
+const json = require('@rollup/plugin-json');
+const path = require('path');
+const fs = require('fs');
 
-var input = path.join(__dirname, 'service.js');
-var outputDir = path.join(__dirname, '..', 'dist');
-var outputFile = path.join(outputDir, 'service.js');
+const input = path.join(__dirname, 'service.js');
+const outputFile = path.join(__dirname, '..', 'dist', 'service.js');
+const outputDir = path.dirname(outputFile);
 
-ncc(input, {
-    cache: false,
-    minify: true,
-    sourceMap: false,
-    target: 'es5'
-}).then(function (result) {
+async function build() {
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    var code = result.code;
+    const bundle = await rollup.rollup({
+        input,
+        plugins: [
+            // Resolve bare module specifiers to node_modules
+            resolve({
+                preferBuiltins: true
+            }),
+            // Convert JSON imports to ES modules
+            json(),
+            // Convert CommonJS modules to ES modules
+            commonjs(),
+            // Transpile modern JS to ES5 for Node 4.4.3 (Tizen TV)
+            babel({
+                babelHelpers: 'bundled',
+                presets: [
+                    ['@babel/preset-env', {
+                        targets: { node: '4.4.3' },
+                        modules: false
+                    }]
+                ],
+                // Transpile everything including node_modules —
+                // Express deps may use const/let/arrow functions
+                exclude: []
+            })
+        ]
+    });
 
-    // Fix for TizenBrew VM sandbox: the sandbox excludes `module` from the
-    // global context, so `module.exports = ...` throws ReferenceError and
-    // crashes the service before Express starts. Strip it — the service
-    // just needs to run and listen on port 8098.
-    code = code.replace(';module.exports=__webpack_exports__', '');
+    await bundle.write({
+        file: outputFile,
+        format: 'cjs',
+        // Don't add module.exports = ... — the service runs itself
+        // (starts Express server), it doesn't export anything.
+        // This avoids potential ReferenceError in TizenBrew's VM sandbox.
+        exports: 'none'
+    });
 
-    // Write bundled output
-    fs.writeFileSync(outputFile, code, 'utf8');
+    await bundle.close();
 
-    // Log summary
-    var kb = (Buffer.byteLength(code, 'utf8') / 1024).toFixed(1);
+    const stats = fs.statSync(outputFile);
+    const kb = (stats.size / 1024).toFixed(1);
     console.log('Built dist/service.js (' + kb + ' KB)');
-}).catch(function (err) {
+}
+
+build().catch(err => {
     console.error('Build failed:', err);
     process.exit(1);
 });
