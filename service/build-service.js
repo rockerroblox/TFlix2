@@ -19,7 +19,7 @@ const path = require('path');
 const fs = require('fs');
 
 const input = path.join(__dirname, 'service.js');
-const outputFile = path.join(__dirname, '..', 'dist', 'service-v3.js');
+const outputFile = path.join(__dirname, '..', 'dist', 'service.js');
 const outputDir = path.dirname(outputFile);
 
 async function build() {
